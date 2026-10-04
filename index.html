@@ -1,0 +1,1401 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>StockPulse - Secure Real-Time Inventory Tracker</title>
+
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Lucide Icons CDN -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+
+    <!-- JSBarcode CDN for Barcode generation -->
+    <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.5/dist/JsBarcode.all.min.js"></script>
+
+    <!-- QRCode.js CDN for QR generation -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+
+    <!-- Supabase JS SDK v2 -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        brand: {
+                            50: '#eef2ff',
+                            100: '#e0e7ff',
+                            500: '#6366f1',
+                            600: '#4f46e5',
+                            700: '#4338ca',
+                            900: '#312e81',
+                        },
+                        darkbg: '#0b0f19',
+                        cardbg: '#111827',
+                        cardborder: '#1f2937'
+                    },
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif']
+                    }
+                }
+            }
+        }
+    </script>
+
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #0b0f19;
+            color: #f3f4f6;
+        }
+
+        .glass-panel {
+            background: rgba(17, 24, 39, 0.75);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+        }
+
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #0b0f19;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #374151;
+            border-radius: 9999px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #4b5563;
+        }
+
+        @keyframes qtyPulse {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.2); color: #818cf8; }
+            100% { transform: scale(1); }
+        }
+        .animate-qty-pulse {
+            animation: qtyPulse 0.35s ease-in-out;
+        }
+
+        @keyframes remoteUpdateHighlight {
+            0% { background-color: rgba(99, 102, 241, 0.3); }
+            100% { background-color: transparent; }
+        }
+        .row-remote-update {
+            animation: remoteUpdateHighlight 1.5s ease-out;
+        }
+
+        @keyframes shake {
+            0%, 100% { transform: translateX(0); }
+            20%, 60% { transform: translateX(-8px); }
+            40%, 80% { transform: translateX(8px); }
+        }
+        .animate-shake {
+            animation: shake 0.4s ease-in-out;
+        }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col justify-between selection:bg-brand-500 selection:text-white relative">
+
+    <div id="authLockScreen" class="fixed inset-0 z-50 bg-black/90 backdrop-blur-xl flex items-center justify-center p-4 transition-all duration-300">
+        <div id="lockCard" class="bg-cardbg border border-cardborder rounded-3xl p-8 max-w-md w-full shadow-2xl flex flex-col items-center text-center space-y-6 glass-panel">
+            <div class="w-16 h-16 bg-gradient-to-tr from-brand-600 to-indigo-500 rounded-2xl flex items-center justify-center text-white shadow-xl shadow-brand-500/30">
+                <i data-lucide="lock" class="w-8 h-8"></i>
+            </div>
+
+            <div>
+                <h2 class="text-2xl font-bold text-white tracking-tight">StockPulse Secured</h2>
+                <p class="text-xs text-gray-400 mt-1.5">Enter access passcode to unlock system</p>
+            </div>
+
+            <form id="loginForm" class="w-full space-y-4">
+                <div class="relative">
+                    <i data-lucide="key-round" class="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400"></i>
+                    <input type="password" id="passcodeInput" required placeholder="Enter Passcode..." 
+                        class="w-full pl-10 pr-10 py-3 bg-gray-900/90 border border-gray-700 rounded-xl text-sm text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-brand-500 transition-all font-mono tracking-wider">
+                    <button type="button" id="togglePasscodeVisBtn" class="absolute right-3.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white">
+                        <i data-lucide="eye" class="w-4 h-4" id="eyeIcon"></i>
+                    </button>
+                </div>
+
+                <div id="authErrorMsg" class="hidden text-xs font-semibold text-rose-400 bg-rose-500/10 border border-rose-500/20 py-2 px-3 rounded-lg flex items-center justify-center gap-1.5">
+                    <i data-lucide="alert-circle" class="w-4 h-4 flex-shrink-0"></i>
+                    <span>Incorrect passcode. Please try again.</span>
+                </div>
+
+                <button type="submit" class="w-full py-3 bg-brand-600 hover:bg-brand-500 text-white font-semibold text-sm rounded-xl shadow-lg shadow-brand-600/30 transition-all duration-200 hover:scale-[1.01] flex items-center justify-center gap-2">
+                    <i data-lucide="unlock" class="w-4 h-4"></i> Unlock Inventory
+                </button>
+            </form>
+
+            <div class="text-[11px] text-gray-500 flex items-center gap-1.5">
+                <i data-lucide="shield-check" class="w-3.5 h-3.5 text-emerald-400"></i> Encrypted Access Control Active
+            </div>
+        </div>
+    </div>
+
+    <div id="toastContainer" class="fixed top-5 right-5 z-50 flex flex-col gap-2.5 max-w-sm w-full pointer-events-none"></div>
+
+    <div id="app" class="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 flex flex-col gap-6">
+
+        <!-- Demo Mode Notice Banner -->
+        <div id="demoModeBanner" class="hidden glass-panel border-l-4 border-l-purple-500 p-3.5 rounded-xl flex flex-col sm:flex-row items-center justify-between gap-3 text-xs bg-purple-950/20">
+            <div class="flex items-center gap-2 text-purple-200">
+                <i data-lucide="zap" class="w-4 h-4 text-purple-400 flex-shrink-0"></i>
+                <span><strong>Local Demo Mode:</strong> Stored in local browser. Connect Supabase for multi-user real-time sync.</span>
+            </div>
+            <div class="flex items-center gap-2 w-full sm:w-auto justify-end">
+                <button id="openSqlModalFromBanner" class="px-3 py-1.5 bg-gray-800 hover:bg-gray-700 text-gray-200 font-medium rounded-lg border border-gray-700 transition-all flex items-center gap-1">
+                    <i data-lucide="code" class="w-3.5 h-3.5 text-indigo-400"></i> Get SQL
+                </button>
+                <button id="openSetupModalFromBanner" class="px-3.5 py-1.5 bg-purple-600 hover:bg-purple-500 text-white font-semibold rounded-lg shadow-md transition-all flex items-center gap-1.5">
+                    <i data-lucide="plug" class="w-3.5 h-3.5"></i> Connect Supabase
+                </button>
+            </div>
+        </div>
+
+        <!-- App Header Bar -->
+        <header class="glass-panel rounded-2xl p-4 sm:p-5 flex flex-col md:flex-row items-center justify-between gap-4 shadow-xl border border-gray-800">
+            <div class="flex items-center justify-between w-full md:w-auto">
+                <div class="flex items-center gap-3">
+                    <div class="bg-gradient-to-tr from-brand-600 to-indigo-400 p-2.5 rounded-xl text-white shadow-lg shadow-brand-500/20">
+                        <i data-lucide="boxes" class="w-7 h-7"></i>
+                    </div>
+                    <div>
+                        <div class="flex items-center gap-2">
+                            <h1 class="text-xl sm:text-2xl font-bold tracking-tight text-white">StockPulse</h1>
+                            <!-- Connection Badge -->
+                            <div id="connectionStatusBadge" class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium bg-purple-500/10 text-purple-300 border border-purple-500/30 cursor-pointer" title="Click to configure Supabase">
+                                <span class="w-2 h-2 rounded-full bg-purple-400"></span>
+                                <span id="connectionStatusText">Demo Mode</span>
+                            </div>
+                        </div>
+                        <p class="text-xs text-gray-400">Multi-Client Real-Time Inventory Tracker</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Header Action Controls -->
+            <div class="flex flex-wrap items-center gap-2 w-full md:w-auto justify-end">
+                <button id="openAddModalBtn" class="flex-1 sm:flex-initial inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-brand-600 hover:bg-brand-500 text-white font-medium text-sm rounded-xl shadow-lg shadow-brand-600/25 transition-all duration-200 hover:scale-[1.02]">
+                    <i data-lucide="plus-circle" class="w-4 h-4"></i>
+                    <span>Add Item</span>
+                </button>
+
+                <button id="openSetupModalBtn" class="inline-flex items-center justify-center gap-2 px-3 py-2.5 bg-gray-800 hover:bg-gray-700 text-gray-200 border border-gray-700 font-medium text-sm rounded-xl transition-all">
+                    <i data-lucide="database" class="w-4 h-4 text-brand-400"></i>
+                    <span class="hidden sm:inline">Database Config</span>
+                </button>
+
+                <div class="flex items-center gap-2">
+                    <button id="exportCsvBtn" title="Export CSV" class="p-2.5 bg-gray-800 hover:bg-gray-700 text-gray-200 border border-gray-700 font-medium text-sm rounded-xl transition-all">
+                        <i data-lucide="download" class="w-4 h-4 text-emerald-400"></i>
+                    </button>
+
+                    <label for="csvFileInput" title="Import CSV" class="p-2.5 bg-gray-800 hover:bg-gray-700 text-gray-200 border border-gray-700 font-medium text-sm rounded-xl cursor-pointer transition-all">
+                        <i data-lucide="upload" class="w-4 h-4 text-sky-400"></i>
+                        <input type="file" id="csvFileInput" accept=".csv" class="hidden" />
+                    </label>
+
+                    <button id="refreshDataBtn" title="Manual Sync Refresh" class="p-2.5 bg-gray-800 hover:bg-gray-700 text-gray-400 border border-gray-700 rounded-xl transition-all hover:text-white">
+                        <i data-lucide="refresh-cw" class="w-4 h-4"></i>
+                    </button>
+
+                    <button id="lockAppBtn" title="Lock System" class="p-2.5 bg-rose-950/40 hover:bg-rose-900/60 text-rose-400 border border-rose-800/50 rounded-xl transition-all">
+                        <i data-lucide="log-out" class="w-4 h-4"></i>
+                    </button>
+                </div>
+            </div>
+        </header>
+
+        <section class="grid grid-cols-2 lg:grid-cols-5 gap-3.5 sm:gap-4">
+            <div class="glass-panel p-4 rounded-2xl border border-gray-800">
+                <div class="flex items-center justify-between mb-2">
+                    <span class="text-xs font-medium text-gray-400 uppercase tracking-wider">Unique SKUs</span>
+                    <span class="p-2 rounded-lg bg-indigo-500/10 text-indigo-400"><i data-lucide="barcode" class="w-4 h-4"></i></span>
+                </div>
+                <div class="text-2xl sm:text-3xl font-bold text-white tracking-tight" id="statUniqueSkus">0</div>
+                <p class="text-[11px] text-gray-500 mt-1">Total unique items</p>
+            </div>
+
+            <div class="glass-panel p-4 rounded-2xl border border-gray-800">
+                <div class="flex items-center justify-between mb-2">
+                    <span class="text-xs font-medium text-gray-400 uppercase tracking-wider">Total Quantity</span>
+                    <span class="p-2 rounded-lg bg-emerald-500/10 text-emerald-400"><i data-lucide="layers" class="w-4 h-4"></i></span>
+                </div>
+                <div class="text-2xl sm:text-3xl font-bold text-white tracking-tight" id="statTotalItems">0</div>
+                <p class="text-[11px] text-gray-500 mt-1">Physical stock units</p>
+            </div>
+
+            <div class="glass-panel p-4 rounded-2xl border border-gray-800">
+                <div class="flex items-center justify-between mb-2">
+                    <span class="text-xs font-medium text-gray-400 uppercase tracking-wider">Total Valuation</span>
+                    <span class="p-2 rounded-lg bg-cyan-500/10 text-cyan-400"><i data-lucide="dollar-sign" class="w-4 h-4"></i></span>
+                </div>
+                <div class="text-2xl sm:text-3xl font-bold text-white tracking-tight" id="statTotalValue">$0.00</div>
+                <p class="text-[11px] text-gray-500 mt-1">Inventory asset value</p>
+            </div>
+
+            <div class="glass-panel p-4 rounded-2xl border border-gray-800">
+                <div class="flex items-center justify-between mb-2">
+                    <span class="text-xs font-medium text-amber-400/90 uppercase tracking-wider">Low Stock</span>
+                    <span class="p-2 rounded-lg bg-amber-500/10 text-amber-400"><i data-lucide="alert-triangle" class="w-4 h-4"></i></span>
+                </div>
+                <div class="text-2xl sm:text-3xl font-bold text-amber-400 tracking-tight" id="statLowStock">0</div>
+                <p class="text-[11px] text-gray-500 mt-1">Below minimum threshold</p>
+            </div>
+
+            <div class="glass-panel p-4 rounded-2xl border border-gray-800 col-span-2 lg:col-span-1">
+                <div class="flex items-center justify-between mb-2">
+                    <span class="text-xs font-medium text-rose-400/90 uppercase tracking-wider">Out of Stock</span>
+                    <span class="p-2 rounded-lg bg-rose-500/10 text-rose-400"><i data-lucide="package-x" class="w-4 h-4"></i></span>
+                </div>
+                <div class="text-2xl sm:text-3xl font-bold text-rose-400 tracking-tight" id="statOutOfStock">0</div>
+                <p class="text-[11px] text-gray-500 mt-1">Requires reorder</p>
+            </div>
+        </section>
+
+        <section class="glass-panel p-4 rounded-2xl border border-gray-800 flex flex-col md:flex-row gap-3 items-stretch md:items-center justify-between">
+            <div class="relative flex-1">
+                <i data-lucide="search" class="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400"></i>
+                <input type="text" id="searchInput" placeholder="Search by Name, SKU, Category, or Notes..." 
+                    class="w-full pl-10 pr-9 py-2.5 bg-gray-900/90 border border-gray-700 rounded-xl text-sm text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-brand-500 transition-all">
+                <button id="clearSearchBtn" class="hidden absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-300">
+                    <i data-lucide="x" class="w-4 h-4"></i>
+                </button>
+            </div>
+
+            <div class="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
+                <select id="categoryFilter" class="bg-gray-900/90 border border-gray-700 text-gray-200 text-xs sm:text-sm rounded-xl px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-brand-500">
+                    <option value="ALL">All Categories</option>
+                    <option value="Electronics">Electronics</option>
+                    <option value="Apparel">Apparel</option>
+                    <option value="Supplies">Supplies</option>
+                    <option value="Food & Beverage">Food & Beverage</option>
+                    <option value="Hardware">Hardware</option>
+                    <option value="Other">Other</option>
+                </select>
+
+                <select id="statusFilter" class="bg-gray-900/90 border border-gray-700 text-gray-200 text-xs sm:text-sm rounded-xl px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-brand-500">
+                    <option value="ALL">All Stock Status</option>
+                    <option value="IN_STOCK">In Stock</option>
+                    <option value="LOW_STOCK">Low Stock</option>
+                    <option value="OUT_OF_STOCK">Out of Stock</option>
+                </select>
+
+                <select id="sortOption" class="col-span-2 sm:col-span-1 bg-gray-900/90 border border-gray-700 text-gray-200 text-xs sm:text-sm rounded-xl px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-brand-500">
+                    <option value="name-asc">Sort: Name (A-Z)</option>
+                    <option value="name-desc">Sort: Name (Z-A)</option>
+                    <option value="qty-asc">Sort: Quantity (Low-High)</option>
+                    <option value="qty-desc">Sort: Quantity (High-Low)</option>
+                    <option value="price-desc">Sort: Price (High-Low)</option>
+                    <option value="value-desc">Sort: Value (High-Low)</option>
+                </select>
+            </div>
+        </section>
+
+        <main class="glass-panel rounded-2xl border border-gray-800 overflow-hidden flex flex-col flex-1 shadow-xl">
+            <div class="overflow-x-auto flex-1">
+                <table class="w-full text-left border-collapse min-w-[768px]">
+                    <thead>
+                        <tr class="bg-gray-900/80 border-b border-gray-800 text-[11px] uppercase tracking-wider text-gray-400 font-semibold select-none">
+                            <th class="py-3.5 px-4">SKU Code</th>
+                            <th class="py-3.5 px-4">Item & Category</th>
+                            <th class="py-3.5 px-4 text-center">In Stock Qty</th>
+                            <th class="py-3.5 px-4 text-right">Unit Price</th>
+                            <th class="py-3.5 px-4 text-right">Total Value</th>
+                            <th class="py-3.5 px-4 text-center">Status</th>
+                            <th class="py-3.5 px-4 text-right">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="inventoryTableBody" class="divide-y divide-gray-800/60 text-sm">
+                        <!-- Dynamic Rows -->
+                    </tbody>
+                </table>
+
+                <div id="emptyState" class="hidden flex-col items-center justify-center p-12 text-center my-8">
+                    <div class="w-16 h-16 bg-gray-800/80 rounded-full flex items-center justify-center text-gray-500 mb-4 border border-gray-700">
+                        <i data-lucide="package-search" class="w-8 h-8"></i>
+                    </div>
+                    <h3 class="text-base font-semibold text-gray-200">No Inventory Items Found</h3>
+                    <p class="text-xs text-gray-400 mt-1 max-w-sm">No items match your query, or the connected database is empty.</p>
+                    <button id="emptyStateAddBtn" class="mt-4 px-4 py-2 bg-brand-600 hover:bg-brand-500 text-white font-medium text-xs rounded-xl shadow transition-all">
+                        + Add First Item
+                    </button>
+                </div>
+            </div>
+
+            <div class="bg-gray-900/90 px-4 py-3 border-t border-gray-800 flex flex-col sm:flex-row items-center justify-between text-xs text-gray-400 gap-2">
+                <div id="showingCountText">Showing 0 items</div>
+                <div class="flex items-center gap-2">
+                    <span id="syncInfoText">Realtime Sync Active</span>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <div id="setupModal" class="fixed inset-0 bg-black/75 backdrop-blur-sm z-50 flex items-center justify-center p-4 opacity-0 pointer-events-none transition-opacity duration-200">
+        <div class="bg-cardbg border border-cardborder rounded-2xl w-full max-w-lg overflow-hidden shadow-2xl p-6 space-y-4">
+            <div class="flex items-center justify-between border-b border-gray-800 pb-3">
+                <h2 class="text-lg font-bold text-white flex items-center gap-2">
+                    <i data-lucide="database" class="w-5 h-5 text-brand-400"></i>
+                    <span>Connect Supabase Database</span>
+                </h2>
+                <button id="closeSetupModalBtn" class="text-gray-400 hover:text-white p-1 rounded-lg">
+                    <i data-lucide="x" class="w-5 h-5"></i>
+                </button>
+            </div>
+
+            <p class="text-xs text-gray-300 leading-relaxed">
+                Connect your free Supabase project to enable <strong>instant multi-user real-time synchronization</strong> across all devices.
+            </p>
+
+            <form id="supabaseConfigForm" class="space-y-4">
+                <div>
+                    <label class="block text-xs font-semibold text-gray-300 uppercase tracking-wider mb-1" for="supaUrl">Supabase Project URL *</label>
+                    <input type="url" id="supaUrl" required placeholder="https://your-project.supabase.co"
+                        class="w-full px-3.5 py-2.5 bg-gray-900 border border-gray-700 rounded-xl text-sm text-white placeholder-gray-500 focus:ring-2 focus:ring-brand-500 focus:outline-none">
+                </div>
+
+                <div>
+                    <label class="block text-xs font-semibold text-gray-300 uppercase tracking-wider mb-1" for="supaKey">Supabase Anon API Key *</label>
+                    <input type="password" id="supaKey" required placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6..."
+                        class="w-full px-3.5 py-2.5 bg-gray-900 border border-gray-700 rounded-xl text-sm text-white placeholder-gray-500 focus:ring-2 focus:ring-brand-500 focus:outline-none font-mono">
+                </div>
+
+                <div class="p-3 bg-gray-900/80 rounded-xl border border-gray-800 flex items-center justify-between">
+                    <div class="text-xs text-gray-400">Need the PostgreSQL database script?</div>
+                    <button type="button" id="openSqlModalBtn" class="text-xs font-semibold text-brand-400 hover:text-brand-300 flex items-center gap-1">
+                        <i data-lucide="code" class="w-3.5 h-3.5"></i> View 1-Click SQL Setup
+                    </button>
+                </div>
+
+                <div class="pt-2 flex items-center justify-between gap-3">
+                    <button type="button" id="disconnectSupaBtn" class="px-3.5 py-2 bg-red-950/40 text-red-400 hover:bg-red-900/60 border border-red-800/50 text-xs font-semibold rounded-xl">
+                        Disconnect & Use Demo Mode
+                    </button>
+                    <div class="flex items-center gap-2">
+                        <button type="button" id="cancelSetupBtn" class="px-4 py-2 bg-gray-800 hover:bg-gray-700 text-gray-300 text-xs font-medium rounded-xl">
+                            Cancel
+                        </button>
+                        <button type="submit" class="px-5 py-2 bg-brand-600 hover:bg-brand-500 text-white text-xs font-semibold rounded-xl shadow-lg shadow-brand-600/30">
+                            Save & Sync
+                        </button>
+                    </div>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div id="sqlModal" class="fixed inset-0 bg-black/75 backdrop-blur-sm z-50 flex items-center justify-center p-4 opacity-0 pointer-events-none transition-opacity duration-200">
+        <div class="bg-cardbg border border-cardborder rounded-2xl w-full max-w-xl overflow-hidden shadow-2xl p-6 space-y-4">
+            <div class="flex items-center justify-between border-b border-gray-800 pb-3">
+                <h3 class="text-base font-bold text-white flex items-center gap-2">
+                    <i data-lucide="terminal" class="w-5 h-5 text-indigo-400"></i>
+                    <span>Supabase SQL Setup Script</span>
+                </h3>
+                <button id="closeSqlModalBtn" class="text-gray-400 hover:text-white p-1 rounded-lg">
+                    <i data-lucide="x" class="w-5 h-5"></i>
+                </button>
+            </div>
+
+            <p class="text-xs text-gray-300">
+                Copy and run this SQL inside your Supabase <strong>SQL Editor</strong> to create the <code>inventory</code> table matching all app columns:
+            </p>
+
+            <div class="relative bg-gray-950 p-3.5 rounded-xl border border-gray-800 text-xs font-mono text-emerald-400 overflow-x-auto max-h-60">
+                <pre id="sqlScriptText">-- 1. Create Inventory Table with UUID Primary Key
+create table if not exists public.inventory (
+    id uuid default gen_random_uuid() primary key,
+    sku text unique not null,
+    name text not null,
+    category text not null default 'Other',
+    quantity integer not null default 0,
+    min_threshold integer not null default 5,
+    unit_price numeric(10,2) not null default 0.00,
+    notes text,
+    updated_at timestamp with time zone default timezone('utc'::text, now()) not null
+);
+
+-- 2. Enable Row Level Security (RLS) & Public Policies
+alter table public.inventory enable row level security;
+
+drop policy if exists "Allow public access" on public.inventory;
+create policy "Allow public access" 
+    on public.inventory 
+    for all 
+    using (true) 
+    with check (true);
+
+-- 3. Enable Supabase Realtime WebSocket Broadcast
+alter publication supabase_realtime add table public.inventory;</pre>
+            </div>
+
+            <div class="flex items-center justify-between pt-2">
+                <span class="text-[11px] text-gray-500">Run this once in Supabase Dashboard -&gt; SQL Editor</span>
+                <button id="copySqlBtn" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold rounded-xl flex items-center gap-1.5 shadow-md">
+                    <i data-lucide="copy" class="w-3.5 h-3.5"></i> Copy SQL
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <div id="itemModal" class="fixed inset-0 bg-black/75 backdrop-blur-sm z-50 flex items-center justify-center p-4 opacity-0 pointer-events-none transition-opacity duration-200">
+        <div class="bg-cardbg border border-cardborder rounded-2xl w-full max-w-lg overflow-hidden shadow-2xl p-6 space-y-4">
+            <div class="flex items-center justify-between border-b border-gray-800 pb-3">
+                <h3 id="itemModalTitle" class="text-base font-bold text-white flex items-center gap-2">
+                    <i data-lucide="package-plus" class="w-5 h-5 text-brand-400"></i>
+                    <span>Add New Inventory Item</span>
+                </h3>
+                <button id="closeItemModalBtn" class="text-gray-400 hover:text-white p-1 rounded-lg">
+                    <i data-lucide="x" class="w-5 h-5"></i>
+                </button>
+            </div>
+
+            <form id="itemForm" class="space-y-3.5">
+                <input type="hidden" id="itemId">
+
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div class="col-span-1 sm:col-span-2">
+                        <label class="block text-xs font-semibold text-gray-300 uppercase tracking-wider mb-1" for="itemName">Item Name *</label>
+                        <input type="text" id="itemName" required placeholder="e.g. Wireless Ergonomic Mouse" 
+                            class="w-full px-3.5 py-2.5 bg-gray-900 border border-gray-700 rounded-xl text-sm text-white placeholder-gray-500 focus:ring-2 focus:ring-brand-500 focus:outline-none">
+                    </div>
+
+                    <div>
+                        <div class="flex items-center justify-between mb-1">
+                            <label class="block text-xs font-semibold text-gray-300 uppercase tracking-wider" for="itemSku">SKU Code *</label>
+                            <button type="button" id="autoGenSkuBtn" class="text-[11px] text-brand-400 hover:text-brand-300 underline font-medium">Auto-Gen</button>
+                        </div>
+                        <input type="text" id="itemSku" required placeholder="e.g. ELEC-MOUSE-01" 
+                            class="w-full px-3.5 py-2.5 bg-gray-900 border border-gray-700 rounded-xl text-sm text-white font-mono uppercase placeholder-gray-500 focus:ring-2 focus:ring-brand-500 focus:outline-none">
+                    </div>
+
+                    <div>
+                        <label class="block text-xs font-semibold text-gray-300 uppercase tracking-wider mb-1" for="itemCategory">Category *</label>
+                        <select id="itemCategory" class="w-full px-3.5 py-2.5 bg-gray-900 border border-gray-700 rounded-xl text-sm text-white focus:ring-2 focus:ring-brand-500 focus:outline-none">
+                            <option value="Electronics">Electronics</option>
+                            <option value="Apparel">Apparel</option>
+                            <option value="Supplies">Supplies</option>
+                            <option value="Food & Beverage">Food & Beverage</option>
+                            <option value="Hardware">Hardware</option>
+                            <option value="Other">Other</option>
+                        </select>
+                    </div>
+
+                    <div>
+                        <label class="block text-xs font-semibold text-gray-300 uppercase tracking-wider mb-1" for="itemQuantity">Current Quantity *</label>
+                        <input type="number" id="itemQuantity" min="0" required value="0"
+                            class="w-full px-3.5 py-2.5 bg-gray-900 border border-gray-700 rounded-xl text-sm text-white focus:ring-2 focus:ring-brand-500 focus:outline-none">
+                    </div>
+
+                    <div>
+                        <label class="block text-xs font-semibold text-gray-300 uppercase tracking-wider mb-1" for="itemMinThreshold">Low Stock Alert Min *</label>
+                        <input type="number" id="itemMinThreshold" min="0" required value="5"
+                            class="w-full px-3.5 py-2.5 bg-gray-900 border border-gray-700 rounded-xl text-sm text-white focus:ring-2 focus:ring-brand-500 focus:outline-none">
+                    </div>
+
+                    <div class="col-span-1 sm:col-span-2">
+                        <label class="block text-xs font-semibold text-gray-300 uppercase tracking-wider mb-1" for="itemUnitPrice">Unit Price ($) *</label>
+                        <input type="number" id="itemUnitPrice" step="0.01" min="0" required value="0.00"
+                            class="w-full px-3.5 py-2.5 bg-gray-900 border border-gray-700 rounded-xl text-sm text-white focus:ring-2 focus:ring-brand-500 focus:outline-none">
+                    </div>
+
+                    <div class="col-span-1 sm:col-span-2">
+                        <label class="block text-xs font-semibold text-gray-300 uppercase tracking-wider mb-1" for="itemNotes">Notes / Description</label>
+                        <textarea id="itemNotes" rows="2" placeholder="Optional details, shelf location, or supplier info..."
+                            class="w-full px-3.5 py-2 bg-gray-900 border border-gray-700 rounded-xl text-sm text-white placeholder-gray-500 focus:ring-2 focus:ring-brand-500 focus:outline-none"></textarea>
+                    </div>
+                </div>
+
+                <div class="pt-3 flex items-center justify-end gap-2.5 border-t border-gray-800">
+                    <button type="button" id="cancelItemModalBtn" class="px-4 py-2 bg-gray-800 hover:bg-gray-700 text-gray-300 text-xs font-medium rounded-xl">
+                        Cancel
+                    </button>
+                    <button type="submit" class="px-5 py-2 bg-brand-600 hover:bg-brand-500 text-white text-xs font-semibold rounded-xl shadow-lg shadow-brand-600/30">
+                        Save Item
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div id="barcodeModal" class="fixed inset-0 bg-black/75 backdrop-blur-sm z-50 flex items-center justify-center p-4 opacity-0 pointer-events-none transition-opacity duration-200">
+        <div class="bg-cardbg border border-cardborder rounded-2xl w-full max-w-sm overflow-hidden shadow-2xl p-6 text-center space-y-4">
+            <div class="flex items-center justify-between border-b border-gray-800 pb-3">
+                <h3 class="text-sm font-bold text-white" id="barcodeModalItemName">SKU Label Generator</h3>
+                <button id="closeBarcodeModalBtn" class="text-gray-400 hover:text-white p-1 rounded-lg">
+                    <i data-lucide="x" class="w-5 h-5"></i>
+                </button>
+            </div>
+
+            <div class="p-4 bg-white rounded-xl flex flex-col items-center justify-center gap-4">
+                <svg id="barcodeCanvas" class="max-w-full"></svg>
+                <div id="qrcodeCanvas" class="flex justify-center"></div>
+            </div>
+
+            <div class="text-xs font-mono text-gray-400" id="barcodeModalSkuText">SKU: -</div>
+
+            <button id="printBarcodeBtn" class="w-full py-2 bg-gray-800 hover:bg-gray-700 text-white text-xs font-medium rounded-xl border border-gray-700 flex items-center justify-center gap-1.5">
+                <i data-lucide="printer" class="w-4 h-4"></i> Print Label
+            </button>
+        </div>
+    </div>
+
+    <div id="deleteModal" class="fixed inset-0 bg-black/75 backdrop-blur-sm z-50 flex items-center justify-center p-4 opacity-0 pointer-events-none transition-opacity duration-200">
+        <div class="bg-cardbg border border-cardborder rounded-2xl w-full max-w-sm overflow-hidden shadow-2xl p-6 text-center space-y-4">
+            <div class="w-12 h-12 bg-red-500/10 text-red-400 rounded-full flex items-center justify-center mx-auto border border-red-500/20">
+                <i data-lucide="alert-triangle" class="w-6 h-6"></i>
+            </div>
+            <div>
+                <h3 class="text-base font-bold text-white">Delete Item?</h3>
+                <p class="text-xs text-gray-400 mt-1" id="deleteConfirmText">Are you sure you want to remove this item permanently?</p>
+            </div>
+            <div class="flex items-center gap-2 pt-2">
+                <button id="cancelDeleteBtn" class="flex-1 py-2 bg-gray-800 hover:bg-gray-700 text-gray-300 text-xs font-medium rounded-xl">Cancel</button>
+                <button id="confirmDeleteBtn" class="flex-1 py-2 bg-rose-600 hover:bg-rose-500 text-white text-xs font-semibold rounded-xl shadow-lg shadow-rose-600/30">Delete</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // System Security Passcode
+        const PASSCODE = '10229_inventory';
+
+        // Default Sample Items (with standard UUIDs)
+        const DEFAULT_ITEMS = [
+            { id: '3b241101-2001-44a0-a111-000000000001', sku: 'ELEC-1001', name: 'Ultra-Wide Curved Monitor 34"', category: 'Electronics', quantity: 12, min_threshold: 4, unit_price: 499.99, notes: 'Aisle 3, Shelf B' },
+            { id: '3b241101-2001-44a0-a111-000000000002', sku: 'ELEC-1002', name: 'Mechanical RGB Keyboard', category: 'Electronics', quantity: 3, min_threshold: 5, unit_price: 89.50, notes: 'Low stock - reorder soon' },
+            { id: '3b241101-2001-44a0-a111-000000000003', sku: 'SUPP-2001', name: 'Ergonomic Desk Chair', category: 'Supplies', quantity: 0, min_threshold: 2, unit_price: 199.00, notes: 'Out of stock - PO #442 pending' },
+            { id: '3b241101-2001-44a0-a111-000000000004', sku: 'APP-3001', name: 'Branded Hoodie (Large)', category: 'Apparel', quantity: 45, min_threshold: 10, unit_price: 35.00, notes: 'Merch inventory' },
+            { id: '3b241101-2001-44a0-a111-000000000005', sku: 'HARD-4001', name: 'Precision Screwdriver Set', category: 'Hardware', quantity: 18, min_threshold: 5, unit_price: 24.99, notes: 'Tool station' }
+        ];
+
+        // Global Application State
+        const state = {
+            items: [],
+            supabase: null,
+            isConnected: false,
+            isAuthenticated: false,
+            editingId: null,
+            deletingId: null,
+            realtimeChannel: null,
+            filters: {
+                search: '',
+                category: 'ALL',
+                status: 'ALL',
+                sort: 'name-asc'
+            }
+        };
+
+        function showToast(message, type = 'info', title = '') {
+            const container = document.getElementById('toastContainer');
+            const toast = document.createElement('div');
+            
+            const bgMap = {
+                success: 'bg-emerald-950/90 border-emerald-500/40 text-emerald-200',
+                error: 'bg-rose-950/90 border-rose-500/40 text-rose-200',
+                info: 'bg-indigo-950/90 border-indigo-500/40 text-indigo-200',
+                remote: 'bg-purple-950/90 border-purple-500/40 text-purple-200'
+            };
+
+            const iconMap = {
+                success: 'check-circle-2',
+                error: 'alert-circle',
+                info: 'info',
+                remote: 'refresh-cw'
+            };
+
+            toast.className = `pointer-events-auto p-3.5 rounded-xl border shadow-xl backdrop-blur-md flex items-start gap-3 transition-all duration-300 transform translate-y-2 opacity-0 text-xs ${bgMap[type] || bgMap.info}`;
+            toast.innerHTML = `
+                <i data-lucide="${iconMap[type] || 'info'}" class="w-4 h-4 flex-shrink-0 mt-0.5"></i>
+                <div class="flex-1">
+                    ${title ? `<div class="font-bold mb-0.5">${title}</div>` : ''}
+                    <div>${message}</div>
+                </div>
+            `;
+
+            container.appendChild(toast);
+            lucide.createIcons();
+
+            requestAnimationFrame(() => {
+                toast.classList.remove('translate-y-2', 'opacity-0');
+            });
+
+            setTimeout(() => {
+                toast.classList.add('opacity-0', 'translate-y-2');
+                setTimeout(() => toast.remove(), 300);
+            }, 4000);
+        }
+
+        // Toggle Modal Display Helper
+        function toggleModal(modalId, show = true) {
+            const modal = document.getElementById(modalId);
+            if (!modal) return;
+            if (show) {
+                modal.classList.remove('opacity-0', 'pointer-events-none');
+            } else {
+                modal.classList.add('opacity-0', 'pointer-events-none');
+            }
+        }
+
+        function checkAuthentication() {
+            const savedSession = sessionStorage.getItem('stockpulse_auth_session');
+            if (savedSession === 'true') {
+                unlockSystem(false);
+            } else {
+                lockSystem();
+            }
+        }
+
+        function verifyPasscode(input) {
+            if (input === PASSCODE) {
+                sessionStorage.setItem('stockpulse_auth_session', 'true');
+                unlockSystem(true);
+                return true;
+            } else {
+                const card = document.getElementById('lockCard');
+                const err = document.getElementById('authErrorMsg');
+                err.classList.remove('hidden');
+                card.classList.remove('animate-shake');
+                void card.offsetWidth;
+                card.classList.add('animate-shake');
+                return false;
+            }
+        }
+
+        function unlockSystem(showNotice = true) {
+            state.isAuthenticated = true;
+            const lockScreen = document.getElementById('authLockScreen');
+            lockScreen.classList.add('opacity-0', 'pointer-events-none');
+            document.getElementById('authErrorMsg').classList.add('hidden');
+            document.getElementById('passcodeInput').value = '';
+            
+            if (showNotice) {
+                showToast('Welcome back! Passcode verified.', 'success', 'Unlocked');
+            }
+
+            // Initialize database after unlocking
+            initSupabase();
+        }
+
+        function lockSystem() {
+            state.isAuthenticated = false;
+            sessionStorage.removeItem('stockpulse_auth_session');
+            const lockScreen = document.getElementById('authLockScreen');
+            lockScreen.classList.remove('opacity-0', 'pointer-events-none');
+            showToast('System locked. Passcode required.', 'info', 'Locked');
+        }
+
+        async function initSupabase() {
+            const url = localStorage.getItem('stockpulse_supa_url');
+            const key = localStorage.getItem('stockpulse_supa_key');
+
+            if (!url || !key) {
+                setConnectionState(false, 'Local Demo Mode');
+                loadLocalData();
+                return;
+            }
+
+            try {
+                const { createClient } = window.supabase;
+                state.supabase = createClient(url, key);
+
+                // Quick connection ping
+                const { data, error } = await state.supabase.from('inventory').select('id').limit(1);
+
+                if (error && error.code !== 'PGRST116') {
+                    throw error;
+                }
+
+                setConnectionState(true, 'Supabase Connected');
+                setupRealtimeSubscription();
+                await fetchSupabaseItems();
+                showToast('Connected to Supabase real-time cloud database!', 'success', 'Cloud Synced');
+            } catch (err) {
+                console.error('Supabase Conn Error:', err);
+                setConnectionState(false, 'Conn Error (Local Fallback)');
+                showToast('Failed to connect to Supabase. Switched to Local Demo Mode.', 'error', 'Connection Failed');
+                loadLocalData();
+            }
+        }
+
+        function setConnectionState(connected, labelText) {
+            state.isConnected = connected;
+            const badge = document.getElementById('connectionStatusBadge');
+            const badgeText = document.getElementById('connectionStatusText');
+            const syncInfo = document.getElementById('syncInfoText');
+            const banner = document.getElementById('demoModeBanner');
+
+            if (connected) {
+                badge.className = "inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium bg-emerald-500/10 text-emerald-300 border border-emerald-500/30 cursor-pointer";
+                badge.querySelector('span').className = "w-2 h-2 rounded-full bg-emerald-400 animate-pulse";
+                badgeText.textContent = labelText || "Supabase Connected";
+                syncInfo.textContent = "Realtime Sync: Active 🟢";
+                banner.classList.add('hidden');
+            } else {
+                badge.className = "inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium bg-purple-500/10 text-purple-300 border border-purple-500/30 cursor-pointer";
+                badge.querySelector('span').className = "w-2 h-2 rounded-full bg-purple-400";
+                badgeText.textContent = labelText || "Local Demo Mode";
+                syncInfo.textContent = "Mode: Local Storage";
+                banner.classList.remove('hidden');
+            }
+        }
+
+        function setupRealtimeSubscription() {
+            if (!state.supabase) return;
+
+            if (state.realtimeChannel) {
+                state.supabase.removeChannel(state.realtimeChannel);
+            }
+
+            state.realtimeChannel = state.supabase
+                .channel('public:inventory')
+                .on('postgres_changes', { event: '*', schema: 'public', table: 'inventory' }, (payload) => {
+                    handleRemoteChange(payload);
+                })
+                .subscribe((status) => {
+                    if (status === 'SUBSCRIBED') {
+                        console.log('Realtime listener subscribed');
+                    }
+                });
+        }
+
+        // Handle incoming WebSocket payloads from other users
+        function handleRemoteChange(payload) {
+            const { eventType, new: newRow, old: oldRow } = payload;
+
+            if (eventType === 'INSERT') {
+                const exists = state.items.some(i => i.id === newRow.id);
+                if (!exists) {
+                    state.items.unshift(normalizeRow(newRow));
+                    renderApp();
+                    showToast(`Item "${newRow.name}" added remotely by another user.`, 'remote', 'Remote Action');
+                }
+            } else if (eventType === 'UPDATE') {
+                const idx = state.items.findIndex(i => i.id === newRow.id);
+                if (idx !== -1) {
+                    state.items[idx] = normalizeRow(newRow);
+                    renderApp();
+                    highlightRow(newRow.id);
+                    showToast(`"${newRow.name}" updated remotely.`, 'remote', 'Stock Updated');
+                }
+            } else if (eventType === 'DELETE') {
+                state.items = state.items.filter(i => i.id !== oldRow.id);
+                renderApp();
+                showToast(`An item was removed remotely.`, 'remote', 'Remote Delete');
+            }
+        }
+
+        function highlightRow(id) {
+            setTimeout(() => {
+                const tr = document.querySelector(`tr[data-id="${id}"]`);
+                if (tr) {
+                    tr.classList.add('row-remote-update');
+                    setTimeout(() => tr.classList.remove('row-remote-update'), 1500);
+                }
+            }, 50);
+        }
+
+        function normalizeRow(row) {
+            return {
+                id: row.id,
+                sku: row.sku,
+                name: row.name,
+                category: row.category || 'Other',
+                quantity: parseInt(row.quantity || 0),
+                min_threshold: parseInt(row.min_threshold || row.min_stock || row.low_threshold || 5),
+                unit_price: parseFloat(row.unit_price || row.price || 0),
+                notes: row.notes || ''
+            };
+        }
+
+        // Fetch Items from Supabase
+        async function fetchSupabaseItems() {
+            if (!state.supabase) return;
+            const { data, error } = await state.supabase.from('inventory').select('*').order('name', { ascending: true });
+            if (error) {
+                console.error('Fetch error:', error);
+                showToast('Failed to fetch rows from Supabase.', 'error');
+                return;
+            }
+            state.items = (data || []).map(normalizeRow);
+            renderApp();
+        }
+
+        function loadLocalData() {
+            const raw = localStorage.getItem('stockpulse_items');
+            if (raw) {
+                try {
+                    state.items = JSON.parse(raw);
+                } catch(e) {
+                    state.items = [...DEFAULT_ITEMS];
+                }
+            } else {
+                state.items = [...DEFAULT_ITEMS];
+                saveLocalData();
+            }
+            renderApp();
+        }
+
+        function saveLocalData() {
+            localStorage.setItem('stockpulse_items', JSON.stringify(state.items));
+        }
+
+        async function saveItem(itemData) {
+            if (state.isConnected && state.supabase) {
+                // Save to Supabase using exact schema
+                const dbPayload = {
+                    id: itemData.id,
+                    sku: itemData.sku,
+                    name: itemData.name,
+                    category: itemData.category,
+                    quantity: itemData.quantity,
+                    min_threshold: itemData.min_threshold,
+                    unit_price: itemData.unit_price,
+                    notes: itemData.notes,
+                    updated_at: new Date().toISOString()
+                };
+
+                const { error } = await state.supabase.from('inventory').upsert(dbPayload);
+                if (error) {
+                    console.error('Save error:', error);
+                    showToast(`Supabase Save Error: ${error.message}`, 'error');
+                    return false;
+                }
+            }
+
+            // Local State Sync
+            const existingIdx = state.items.findIndex(i => i.id === itemData.id);
+            if (existingIdx !== -1) {
+                state.items[existingIdx] = { ...itemData };
+            } else {
+                state.items.unshift({ ...itemData });
+            }
+
+            if (!state.isConnected) {
+                saveLocalData();
+            }
+
+            renderApp();
+            showToast(`Saved "${itemData.name}" successfully!`, 'success');
+            return true;
+        }
+
+        // Delete Item
+        async function deleteItem(id) {
+            if (state.isConnected && state.supabase) {
+                const { error } = await state.supabase.from('inventory').delete().eq('id', id);
+                if (error) {
+                    showToast(`Delete Error: ${error.message}`, 'error');
+                    return;
+                }
+            }
+
+            state.items = state.items.filter(i => i.id !== id);
+
+            if (!state.isConnected) {
+                saveLocalData();
+            }
+
+            renderApp();
+            showToast('Item deleted.', 'info');
+        }
+
+        async function adjustQuantity(id, delta) {
+            const item = state.items.find(i => i.id === id);
+            if (!item) return;
+
+            const newQty = Math.max(0, item.quantity + delta);
+            if (newQty === item.quantity) return;
+
+            item.quantity = newQty;
+
+            // Trigger visual pulse animation on counter
+            const qtySpan = document.getElementById(`qty-val-${id}`);
+            if (qtySpan) {
+                qtySpan.classList.remove('animate-qty-pulse');
+                void qtySpan.offsetWidth;
+                qtySpan.classList.add('animate-qty-pulse');
+            }
+
+            if (state.isConnected && state.supabase) {
+                await state.supabase.from('inventory').update({ 
+                    quantity: newQty, 
+                    updated_at: new Date().toISOString() 
+                }).eq('id', id);
+            } else {
+                saveLocalData();
+            }
+
+            renderApp();
+        }
+
+        function computeMetrics() {
+            const uniqueSkus = state.items.length;
+            const totalItems = state.items.reduce((acc, curr) => acc + (curr.quantity || 0), 0);
+            const totalValue = state.items.reduce((acc, curr) => acc + ((curr.quantity || 0) * (curr.unit_price || 0)), 0);
+            const lowStockCount = state.items.filter(i => i.quantity > 0 && i.quantity <= i.min_threshold).length;
+            const outOfStockCount = state.items.filter(i => i.quantity <= 0).length;
+
+            document.getElementById('statUniqueSkus').textContent = uniqueSkus.toLocaleString();
+            document.getElementById('statTotalItems').textContent = totalItems.toLocaleString();
+            document.getElementById('statTotalValue').textContent = `$${totalValue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+            document.getElementById('statLowStock').textContent = lowStockCount;
+            document.getElementById('statOutOfStock').textContent = outOfStockCount;
+        }
+
+        function getFilteredItems() {
+            return state.items.filter(item => {
+                const query = state.filters.search.toLowerCase();
+                const matchesSearch = !query || 
+                    item.name.toLowerCase().includes(query) ||
+                    item.sku.toLowerCase().includes(query) ||
+                    item.category.toLowerCase().includes(query) ||
+                    (item.notes && item.notes.toLowerCase().includes(query));
+
+                const matchesCat = state.filters.category === 'ALL' || item.category === state.filters.category;
+
+                let matchesStatus = true;
+                if (state.filters.status === 'IN_STOCK') {
+                    matchesStatus = item.quantity > item.min_threshold;
+                } else if (state.filters.status === 'LOW_STOCK') {
+                    matchesStatus = item.quantity > 0 && item.quantity <= item.min_threshold;
+                } else if (state.filters.status === 'OUT_OF_STOCK') {
+                    matchesStatus = item.quantity <= 0;
+                }
+
+                return matchesSearch && matchesCat && matchesStatus;
+            }).sort((a, b) => {
+                const sort = state.filters.sort;
+                if (sort === 'name-asc') return a.name.localeCompare(b.name);
+                if (sort === 'name-desc') return b.name.localeCompare(a.name);
+                if (sort === 'qty-asc') return a.quantity - b.quantity;
+                if (sort === 'qty-desc') return b.quantity - a.quantity;
+                if (sort === 'price-desc') return b.unit_price - a.unit_price;
+                if (sort === 'value-desc') return (b.quantity * b.unit_price) - (a.quantity * a.unit_price);
+                return 0;
+            });
+        }
+
+        function renderApp() {
+            computeMetrics();
+
+            const tbody = document.getElementById('inventoryTableBody');
+            const emptyState = document.getElementById('emptyState');
+            const filtered = getFilteredItems();
+
+            document.getElementById('showingCountText').textContent = `Showing ${filtered.length} of ${state.items.length} items`;
+
+            if (filtered.length === 0) {
+                tbody.innerHTML = '';
+                emptyState.classList.remove('hidden');
+                emptyState.classList.add('flex');
+                return;
+            }
+
+            emptyState.classList.add('hidden');
+            emptyState.classList.remove('flex');
+
+            tbody.innerHTML = filtered.map(item => {
+                const totalVal = (item.quantity * item.unit_price);
+                
+                let statusBadge = '';
+                if (item.quantity <= 0) {
+                    statusBadge = `<span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-rose-500/10 text-rose-400 border border-rose-500/20"><span class="w-1.5 h-1.5 rounded-full bg-rose-500"></span>Out of Stock</span>`;
+                } else if (item.quantity <= item.min_threshold) {
+                    statusBadge = `<span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-amber-500/10 text-amber-400 border border-amber-500/20"><span class="w-1.5 h-1.5 rounded-full bg-amber-400"></span>Low Stock (${item.quantity})</span>`;
+                } else {
+                    statusBadge = `<span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"><span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>In Stock</span>`;
+                }
+
+                return `
+                    <tr data-id="${item.id}" class="hover:bg-gray-800/40 transition-colors">
+                        <td class="py-3.5 px-4 font-mono text-xs font-semibold text-brand-300">
+                            ${escapeHtml(item.sku)}
+                        </td>
+                        <td class="py-3.5 px-4">
+                            <div class="font-semibold text-white text-sm">${escapeHtml(item.name)}</div>
+                            <div class="flex items-center gap-2 mt-0.5">
+                                <span class="px-2 py-0.5 rounded bg-gray-800 border border-gray-700 text-[10px] text-gray-400 font-medium">${escapeHtml(item.category)}</span>
+                                ${item.notes ? `<span class="text-[11px] text-gray-500 truncate max-w-xs">${escapeHtml(item.notes)}</span>` : ''}
+                            </div>
+                        </td>
+                        <td class="py-3.5 px-4 text-center">
+                            <div class="inline-flex items-center border border-gray-700 rounded-xl bg-gray-900/90 overflow-hidden shadow-inner">
+                                <button onclick="adjustQuantity('${item.id}', -1)" class="px-2.5 py-1 hover:bg-gray-800 text-gray-400 hover:text-white transition-colors">-</button>
+                                <span id="qty-val-${item.id}" class="px-3 py-1 font-bold text-sm text-white min-w-[2.5rem] text-center">${item.quantity}</span>
+                                <button onclick="adjustQuantity('${item.id}', 1)" class="px-2.5 py-1 hover:bg-gray-800 text-gray-400 hover:text-white transition-colors">+</button>
+                            </div>
+                        </td>
+                        <td class="py-3.5 px-4 text-right font-medium text-gray-200">
+                            $${item.unit_price.toFixed(2)}
+                        </td>
+                        <td class="py-3.5 px-4 text-right font-bold text-white">
+                            $${totalVal.toFixed(2)}
+                        </td>
+                        <td class="py-3.5 px-4 text-center">
+                            ${statusBadge}
+                        </td>
+                        <td class="py-3.5 px-4 text-right">
+                            <div class="flex items-center justify-end gap-1">
+                                <button onclick="openBarcodeModal('${item.id}')" title="Generate Barcode / QR" class="p-2 text-gray-400 hover:text-indigo-400 hover:bg-gray-800 rounded-lg transition-all">
+                                    <i data-lucide="qr-code" class="w-4 h-4"></i>
+                                </button>
+                                <button onclick="openEditModal('${item.id}')" title="Edit Item" class="p-2 text-gray-400 hover:text-amber-400 hover:bg-gray-800 rounded-lg transition-all">
+                                    <i data-lucide="pencil" class="w-4 h-4"></i>
+                                </button>
+                                <button onclick="openDeleteModal('${item.id}')" title="Delete Item" class="p-2 text-gray-400 hover:text-rose-400 hover:bg-gray-800 rounded-lg transition-all">
+                                    <i data-lucide="trash-2" class="w-4 h-4"></i>
+                                </button>
+                            </div>
+                        </td>
+                    </tr>
+                `;
+            }).join('');
+
+            lucide.createIcons();
+        }
+
+        function escapeHtml(str) {
+            if (!str) return '';
+            return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+        }
+
+        function exportToCSV() {
+            if (state.items.length === 0) {
+                showToast('No inventory items to export.', 'info');
+                return;
+            }
+
+            const headers = ['ID', 'SKU', 'Name', 'Category', 'Quantity', 'MinThreshold', 'UnitPrice', 'Notes'];
+            const rows = state.items.map(item => [
+                `"${item.id}"`,
+                `"${item.sku.replace(/"/g, '""')}"`,
+                `"${item.name.replace(/"/g, '""')}"`,
+                `"${item.category.replace(/"/g, '""')}"`,
+                item.quantity,
+                item.min_threshold,
+                item.unit_price,
+                `"${(item.notes || '').replace(/"/g, '""')}"`
+            ]);
+
+            const csvContent = [headers.join(','), ...rows.map(e => e.join(','))].join('\n');
+            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+            const url = URL.createObjectURL(blob);
+            
+            const link = document.createElement('a');
+            link.setAttribute('href', url);
+            link.setAttribute('download', `stockpulse_inventory_${new Date().toISOString().slice(0,10)}.csv`);
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+
+            showToast('CSV export downloaded!', 'success');
+        }
+
+        function handleCsvImport(e) {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = async function(evt) {
+                try {
+                    const text = evt.target.result;
+                    const lines = text.split('\n').filter(l => l.trim().length > 0);
+                    if (lines.length < 2) throw new Error('Invalid or empty CSV format');
+
+                    let importedCount = 0;
+                    for (let i = 1; i < lines.length; i++) {
+                        const cols = lines[i].split(',').map(c => c.trim().replace(/^"|"$/g, ''));
+                        if (cols.length >= 3) {
+                            const newItem = {
+                                id: (cols[0] && cols[0].length === 36) ? cols[0] : crypto.randomUUID(),
+                                sku: cols[1] || ('SKU-' + Math.random().toString(36).substring(2,7).toUpperCase()),
+                                name: cols[2] || 'Imported Item',
+                                category: cols[3] || 'Other',
+                                quantity: parseInt(cols[4]) || 0,
+                                min_threshold: parseInt(cols[5]) || 5,
+                                unit_price: parseFloat(cols[6]) || 0.00,
+                                notes: cols[7] || 'Imported via CSV'
+                            };
+                            await saveItem(newItem);
+                            importedCount++;
+                        }
+                    }
+
+                    showToast(`Successfully imported ${importedCount} items from CSV!`, 'success');
+                } catch(err) {
+                    console.error(err);
+                    showToast('Failed to parse CSV file format.', 'error');
+                }
+            };
+            reader.readAsText(file);
+            e.target.value = '';
+        }
+
+        function openBarcodeModal(id) {
+            const item = state.items.find(i => i.id === id);
+            if (!item) return;
+
+            document.getElementById('barcodeModalItemName').textContent = item.name;
+            document.getElementById('barcodeModalSkuText').textContent = `SKU Code: ${item.sku}`;
+
+            try {
+                JsBarcode("#barcodeCanvas", item.sku, {
+                    format: "CODE128",
+                    width: 2,
+                    height: 50,
+                    displayValue: true,
+                    lineColor: "#000",
+                    fontSize: 12
+                });
+            } catch(e) {
+                console.error(e);
+            }
+
+            const qrContainer = document.getElementById('qrcodeCanvas');
+            qrContainer.innerHTML = '';
+            new QRCode(qrContainer, {
+                text: item.sku,
+                width: 90,
+                height: 90
+            });
+
+            toggleModal('barcodeModal', true);
+        }
+
+        function openAddModal() {
+            state.editingId = null;
+            document.getElementById('itemModalTitle').innerHTML = `<i data-lucide="package-plus" class="w-5 h-5 text-brand-400"></i> Add New Inventory Item`;
+            document.getElementById('itemForm').reset();
+            // Use native standard browser UUID generator
+            document.getElementById('itemId').value = crypto.randomUUID();
+            document.getElementById('itemSku').value = 'SKU-' + Math.random().toString(36).substring(2, 8).toUpperCase();
+            lucide.createIcons();
+            toggleModal('itemModal', true);
+        }
+
+        function openEditModal(id) {
+            const item = state.items.find(i => i.id === id);
+            if (!item) return;
+
+            state.editingId = id;
+            document.getElementById('itemModalTitle').innerHTML = `<i data-lucide="pencil" class="w-5 h-5 text-amber-400"></i> Edit Inventory Item`;
+            document.getElementById('itemId').value = item.id;
+            document.getElementById('itemName').value = item.name;
+            document.getElementById('itemSku').value = item.sku;
+            document.getElementById('itemCategory').value = item.category;
+            document.getElementById('itemQuantity').value = item.quantity;
+            document.getElementById('itemMinThreshold').value = item.min_threshold;
+            document.getElementById('itemUnitPrice').value = item.unit_price;
+            document.getElementById('itemNotes').value = item.notes || '';
+
+            lucide.createIcons();
+            toggleModal('itemModal', true);
+        }
+
+        function openDeleteModal(id) {
+            state.deletingId = id;
+            const item = state.items.find(i => i.id === id);
+            if (item) {
+                document.getElementById('deleteConfirmText').textContent = `Are you sure you want to remove "${item.name}"?`;
+            }
+            toggleModal('deleteModal', true);
+        }
+
+        function setupEventListeners() {
+            // Login Form Event Listener
+            document.getElementById('loginForm').addEventListener('submit', (e) => {
+                e.preventDefault();
+                const pass = document.getElementById('passcodeInput').value;
+                verifyPasscode(pass);
+            });
+
+            // Toggle Passcode Visibility
+            document.getElementById('togglePasscodeVisBtn').addEventListener('click', () => {
+                const input = document.getElementById('passcodeInput');
+                const eyeIcon = document.getElementById('eyeIcon');
+                if (input.type === 'password') {
+                    input.type = 'text';
+                    eyeIcon.setAttribute('data-lucide', 'eye-off');
+                } else {
+                    input.type = 'password';
+                    eyeIcon.setAttribute('data-lucide', 'eye');
+                }
+                lucide.createIcons();
+            });
+
+            // Lock Application Button
+            document.getElementById('lockAppBtn').addEventListener('click', () => {
+                lockSystem();
+            });
+
+            // Add/Edit Form submission
+            document.getElementById('itemForm').addEventListener('submit', async (e) => {
+                e.preventDefault();
+                const itemData = {
+                    id: document.getElementById('itemId').value || crypto.randomUUID(),
+                    name: document.getElementById('itemName').value.trim(),
+                    sku: document.getElementById('itemSku').value.trim().toUpperCase(),
+                    category: document.getElementById('itemCategory').value,
+                    quantity: parseInt(document.getElementById('itemQuantity').value) || 0,
+                    min_threshold: parseInt(document.getElementById('itemMinThreshold').value) || 0,
+                    unit_price: parseFloat(document.getElementById('itemUnitPrice').value) || 0.00,
+                    notes: document.getElementById('itemNotes').value.trim()
+                };
+
+                const success = await saveItem(itemData);
+                if (success) {
+                    toggleModal('itemModal', false);
+                }
+            });
+
+            // Auto Gen SKU button
+            document.getElementById('autoGenSkuBtn').addEventListener('click', () => {
+                const cat = document.getElementById('itemCategory').value.substring(0, 4).toUpperCase();
+                const rand = Math.random().toString(36).substring(2, 7).toUpperCase();
+                document.getElementById('itemSku').value = `${cat}-${rand}`;
+            });
+
+            // Delete Confirm Modal Buttons
+            document.getElementById('confirmDeleteBtn').addEventListener('click', async () => {
+                if (state.deletingId) {
+                    await deleteItem(state.deletingId);
+                    state.deletingId = null;
+                }
+                toggleModal('deleteModal', false);
+            });
+            document.getElementById('cancelDeleteBtn').addEventListener('click', () => toggleModal('deleteModal', false));
+
+            // Setup Modal / Config Form
+            document.getElementById('openSetupModalBtn').addEventListener('click', () => {
+                document.getElementById('supaUrl').value = localStorage.getItem('stockpulse_supa_url') || '';
+                document.getElementById('supaKey').value = localStorage.getItem('stockpulse_supa_key') || '';
+                toggleModal('setupModal', true);
+            });
+            document.getElementById('connectionStatusBadge').addEventListener('click', () => {
+                document.getElementById('openSetupModalBtn').click();
+            });
+            document.getElementById('closeSetupModalBtn').addEventListener('click', () => toggleModal('setupModal', false));
+            document.getElementById('cancelSetupBtn').addEventListener('click', () => toggleModal('setupModal', false));
+            
+            document.getElementById('openSetupModalFromBanner').addEventListener('click', () => {
+                document.getElementById('openSetupModalBtn').click();
+            });
+
+            // Supabase Config Submission
+            document.getElementById('supabaseConfigForm').addEventListener('submit', async (e) => {
+                e.preventDefault();
+                const url = document.getElementById('supaUrl').value.trim();
+                const key = document.getElementById('supaKey').value.trim();
+
+                localStorage.setItem('stockpulse_supa_url', url);
+                localStorage.setItem('stockpulse_supa_key', key);
+
+                toggleModal('setupModal', false);
+                await initSupabase();
+            });
+
+            // Disconnect Supabase
+            document.getElementById('disconnectSupaBtn').addEventListener('click', () => {
+                localStorage.removeItem('stockpulse_supa_url');
+                localStorage.removeItem('stockpulse_supa_key');
+                if (state.realtimeChannel) {
+                    state.supabase.removeChannel(state.realtimeChannel);
+                }
+                state.supabase = null;
+                toggleModal('setupModal', false);
+                setConnectionState(false, 'Local Demo Mode');
+                loadLocalData();
+                showToast('Disconnected from Supabase. Switched to Local Demo Mode.', 'info');
+            });
+
+            // SQL Guide Modal Trigger
+            const openSqlModal = () => toggleModal('sqlModal', true);
+            document.getElementById('openSqlModalBtn').addEventListener('click', openSqlModal);
+            document.getElementById('openSqlModalFromBanner').addEventListener('click', openSqlModal);
+            document.getElementById('closeSqlModalBtn').addEventListener('click', () => toggleModal('sqlModal', false));
+
+            // Copy SQL Script Button
+            document.getElementById('copySqlBtn').addEventListener('click', () => {
+                const text = document.getElementById('sqlScriptText').textContent;
+                navigator.clipboard.writeText(text);
+                showToast('SQL script copied to clipboard!', 'success');
+            });
+
+            // Add Item Modals
+            document.getElementById('openAddModalBtn').addEventListener('click', openAddModal);
+            document.getElementById('emptyStateAddBtn').addEventListener('click', openAddModal);
+            document.getElementById('closeItemModalBtn').addEventListener('click', () => toggleModal('itemModal', false));
+            document.getElementById('cancelItemModalBtn').addEventListener('click', () => toggleModal('itemModal', false));
+
+            // Barcode Modal
+            document.getElementById('closeBarcodeModalBtn').addEventListener('click', () => toggleModal('barcodeModal', false));
+            document.getElementById('printBarcodeBtn').addEventListener('click', () => window.print());
+
+            // CSV Actions
+            document.getElementById('exportCsvBtn').addEventListener('click', exportToCSV);
+            document.getElementById('csvFileInput').addEventListener('change', handleCsvImport);
+
+            // Refresh Button
+            document.getElementById('refreshDataBtn').addEventListener('click', async () => {
+                if (state.isConnected) {
+                    await fetchSupabaseItems();
+                    showToast('Data refreshed from Supabase.', 'info');
+                } else {
+                    loadLocalData();
+                    showToast('Local data reloaded.', 'info');
+                }
+            });
+
+            // Search and Filters
+            const searchInput = document.getElementById('searchInput');
+            const clearSearchBtn = document.getElementById('clearSearchBtn');
+
+            searchInput.addEventListener('input', (e) => {
+                state.filters.search = e.target.value;
+                clearSearchBtn.classList.toggle('hidden', !e.target.value);
+                renderApp();
+            });
+
+            clearSearchBtn.addEventListener('click', () => {
+                searchInput.value = '';
+                state.filters.search = '';
+                clearSearchBtn.classList.add('hidden');
+                renderApp();
+            });
+
+            document.getElementById('categoryFilter').addEventListener('change', (e) => {
+                state.filters.category = e.target.value;
+                renderApp();
+            });
+
+            document.getElementById('statusFilter').addEventListener('change', (e) => {
+                state.filters.status = e.target.value;
+                renderApp();
+            });
+
+            document.getElementById('sortOption').addEventListener('change', (e) => {
+                state.filters.sort = e.target.value;
+                renderApp();
+            });
+        }
+
+        window.addEventListener('DOMContentLoaded', () => {
+            lucide.createIcons();
+            setupEventListeners();
+            checkAuthentication();
+        });
+    </script>
+</body>
+</html>
